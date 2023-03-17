@@ -1,0 +1,82 @@
+---
+title: "網路爬蟲練習2-證交所每日收盤"
+author: "Simon"
+date: "2023-01-30"
+output:
+  html_document: default
+  pdf_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r, include=FALSE}
+rm(list = ls())
+```
+
+網址
+# https://hackmd.io/@kuo-23/SkMXQqJKS?fbclid=IwAR2durja9XUI9A-gYpwT0fC3cJEwNlc1VBntuCcg78U7s4rX9gy_OCnfGMA
+
+```{r, include=FALSE}
+library(tidyverse)
+library(rvest)
+library(magrittr)
+library(ggplot2)
+```
+
+```{r}
+# 連結
+url <- "https://www.twse.com.tw/exchangeReport/MI_INDEX?response=html&type=ALLBUT0999&date=20191008"
+
+# 標題
+stocktitle <- read_html(url, encoding = "utf-8") %>%
+  html_nodes(xpath = "/html/body/div/table[9]/thead/tr[3]/td") %>%
+  html_text()
+
+stockpricedata <- read_html(url) %>%
+  html_nodes(xpath = "/html/body/div/table[9]/tbody/tr/td") %>%
+  html_text() %>%
+  matrix(ncol = 16, byrow = T)%>%
+  as.data.frame()
+
+colnames(stockpricedata) <- stocktitle
+```
+
+```{r}
+datelist <- seq.Date(from = as.Date("2020-01-01"), to = as.Date("2020-03-31"), "days") %>%
+  gsub("-", "", .)
+
+output <- NULL
+
+for (di in 1: length(datelist)) {
+  cat(paste0("目前正在下載 ",datelist[di]," 交易日，進度: ", di," / ",length(datelist),"\n"))
+  
+  url_1 <- str_c("https://www.twse.com.tw/exchangeReport/MI_INDEX?response=html&type=ALLBUT0999&date=", datelist[di])
+  
+  #判斷當日是否為交易日，若當日無交易資料則該欄位為empty，使用length判斷，如果有資料，應該是0050這格
+  content <- read_html(url, encoding = "utf-8") %>%
+    html_nodes(xpath = "/html/body/div/table[9]/tbody/tr[1]/td[1]") %>%
+    html_text()
+  
+  if (length(content) != 0){   
+    stockpricedata_1 <- read_html(url_1, encoding = "utf-8") %>%
+      html_nodes(xpath = "/html/body/div/table[9]/tbody/tr/td") %>%
+      html_text() %>%
+      matrix(ncol = length(stocktitle), byrow = T) %>%
+      as.data.frame()
+    
+    colnames(stockpricedata_1) <- stocktitle
+    
+    output <- bind_rows(output, stockpricedata_1 %>% mutate(date = datelist[di]))    
+  }
+  
+  #暫停延緩，要不然會被網站擋
+  Sys.sleep(5)
+} 
+```
+
+```{r}
+graph0050 <- output[output$證券代號 == "0050", ]
+ggplot(data = graph0050, aes(x = date, y = 收盤價)) + geom_point()
+```

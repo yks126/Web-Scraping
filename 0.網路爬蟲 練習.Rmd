@@ -1,0 +1,38 @@
+---
+title: "網路爬蟲練習"
+author: "Simon"
+date: "2023-01-30"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+rm(list = ls())
+```
+
+```{r}
+library(rvest)
+library(magrittr)
+```
+
+```{r}
+url <- "https://m.mobile01.com/forumtopic.php?c=29"
+
+htmlcontent <- read_html(url)
+
+# the following is the original Xpath, in order to scrape all the title, we need to change "div[1]"(this means the first title) into "div"
+# /html/body/div[1]/main/div[1]/div/div[2]/div[5]/div[1]/div[3]/**div[1]**/div[1]/a 
+
+titlepath <- "/html/body/div[1]/main/div[1]/div/div[2]/div[5]/div[1]/div[3]/div/div[1]/a"
+titles <- htmlcontent %>% html_nodes(xpath = titlepath) %>% html_text()
+
+titletime <- "/html/body/div[1]/main/div[1]/div/div[2]/div[5]/div[1]/div[3]/div/div[3]/div/div/span"
+posttimes <- htmlcontent %>% html_nodes(xpath = titletime) %>% html_text()
+
+mytable <- data.frame(Titles = titles, Posttimes = posttimes)
+```
+
+

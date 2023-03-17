@@ -1,0 +1,73 @@
+---
+title: "網路爬蟲-rvest, rselenium"
+author: "Simon"
+date: "2023-02-06"
+output: html_document
+---
+
+```{r}
+rm(list = ls())
+```
+
+```{r}
+library(tidyverse)
+library(RSelenium)
+library(rvest)
+library(netstat)
+library(data.table)
+```
+
+```{r}
+remDr <- remoteDriver(browserName = "chrome")
+remDr$open()
+
+remDr$navigate("http://salaries.texastribune.org/search/?q=%22Department+of+Public+Safety%22")
+
+data_table <- remDr$findElement(using = "id", "pagination-table")
+
+all_data <- list()
+cond <- TRUE
+```
+
+
+```{r}
+while (cond == TRUE) {
+  
+  df <- data_table$getPageSource() %>%
+    unlist() %>%
+    read_html() %>%
+    html_table() %>%
+    .[[2]]
+  
+  all_data <- rbindlist(list(all_data, df))
+ 
+   #data_table_html <- data_table$getPageSource()
+  #page <- read_html(data_table_html %>% unlist())
+  #df <- html_table(page) %>% .[[2]]
+  #all_data <- rbindlist(list(all_data, df))
+  
+  Sys.sleep(0.1)
+  
+  tryCatch(
+    {
+      next_botton <- remDr$findElement(using = "xpath", '//a[@aria-label="Next Page"]')$clickElement()
+    },
+    error = function(e){
+      print("Script Complete")
+      cond <<- FALSE
+    }
+  )
+  
+  if (cond == FALSE){
+    break
+  }
+}
+```
+
+
+```{r}
+colnames(all_data)[3] <- "Agency"
+
+all_data$`Annual salary` <- str_remove_all(all_data$`Annual salary`, "[$,]") %>%
+  as.numeric()
+```

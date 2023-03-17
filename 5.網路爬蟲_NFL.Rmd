@@ -1,0 +1,102 @@
+---
+title: "網路爬蟲練習_NFL"
+author: "Simon"
+date: "2023-02-04"
+output: html_document
+---
+```{r, include=FALSE}
+rm(list = ls())
+```
+
+正規表達式網址：
+https://blog.yjtseng.info/post/regexpr/
+
+
+```{r, include=FALSE}
+library(tidyverse)
+library(rvest)
+library(magrittr)
+```
+
+```{r}
+url <- "https://www.pro-football-reference.com/players/B/BradTo00/gamelog/"
+page <- read_html(url)
+
+#get regular season table
+stats <- page %>%
+  html_element(css = '#stats') %>%
+  html_table()
+
+#get stats payoffs table
+stats_playoffs <- page %>%
+  html_element(css = '#stats_playoffs') %>%
+  html_table()
+```
+
+```{r}
+#data cleaning
+
+data_cleaning <- function(stats){
+  #change the header
+  colnames(stats) <- paste(colnames(stats), stats[1, ], sep = "_") %>%
+    str_remove_all(., "^[_]") #remove the "_" in the beginning.
+  
+  #remove unnecessary rows
+  stats <- stats[!grepl("^.*[A-Z].*", stats$Date),]
+  
+  #remove the empty columns
+  stats <- stats[, !grepl("^$", colnames(stats))]
+  
+  #check for duplicate column names 檢查是否有重複的標題
+  dup_index <- grep(TRUE, duplicated(colnames(stats)))
+  
+  #change to differernt name
+  colnames(stats)[dup_index] <- paste(colnames(stats)[dup_index], "2", sep = "_")
+  
+  #replace the GS values
+  stats$GS <- stats$GS %>%
+    str_replace_all('[*]', "Starts") %>%
+    str_replace_all('^$', "Player but not started")
+  
+  #replace all columns after GS with NAs if player has not played
+  GS_index <- grep("^GS$", colnames(stats)) + 1
+  
+  for (i in GS_index: ncol(stats)){
+    stats[[i]][stats[[i]] %in% unique(stats$GS)] <- NA
+  }
+  
+  return(stats)
+}
+
+stats_regular <- data_cleaning(stats)
+stats_playoffs <- data_cleaning(stats_playoffs)
+```
+
+```{r}
+#combine all column names
+all_colnames <- c(colnames(stats_regular), colnames(stats_playoffs)) %>%
+  unique()
+
+'%notin%' <- Negate('%in%')
+
+#find the columns that are not in the stats playoffs dataset
+not_in_headers <- all_colnames %notin% colnames(stats_playoffs)
+
+#find the missing columns and creat them in the stats playoffs data
+missing_cols <- all_colnames[not_in_headers]
+stats_playoffs[, missing_cols] <- 0
+
+#order the dataset
+stats_regular <- stats_regular[all_colnames]
+stats_playoffs <- stats_playoffs[all_colnames]
+
+#combine our dataset 
+stats_combined <- rbind(stats_regular, stats_playoffs)
+
+#arrange the data based on year
+stats_combined <- arrange(stats_combined, Year)
+
+#write our dataset into a file
+write.csv(stats_combined, "scrape tom brady stats.csv", na = "", row.names = F)
+
+```

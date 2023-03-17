@@ -1,0 +1,81 @@
+---
+title: "網路爬蟲練習4-ptt電影板"
+author: "Simon"
+date: "2023-01-31"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE)
+```
+
+```{r, include=FALSE}
+rm(list = ls())
+```
+
+```{r, include=FALSE}
+library(tidyverse)
+library(rvest)
+library(magrittr)
+library(ggplot2)
+```
+
+```{r}
+url <- "https://www.ptt.cc/bbs/movie/index.html"
+
+#用"上頁"，判斷目前在第幾頁
+pagenum <- read_html(url, encoding = "utf-8") %>%
+  html_nodes(xpath = "/html/body/div[2]/div[1]/div/div[2]/a[2]") %>%
+  html_attr("href") %>%     # 爬上頁的網址
+  gsub("\\D", "", .) %>%    # 去除網址非數字的部分
+  as.numeric() + 1          # 存取頁數為上一頁，故加一
+
+# 欲讀取頁數
+pageread <- 10
+
+articletable <- NULL
+
+for (page in seq((pagenum - pageread + 1), pagenum, 1)) {
+  
+  cat(paste0("目前正在讀取第", page, "個頁面，進度", page, " / ", pagenum, "\n"))
+  
+  # 連結
+  url_1 <- paste0("https://www.ptt.cc/bbs/movie/index", page, ".html")
+  
+  # 下載網頁原始碼
+  html <- read_html(url_1, encoding = "utf-8")
+  
+  # 讀取標題，目前標題存在"本文已被刪除"
+  title <- html %>%   
+    html_nodes(xpath = "/html/body/div[2]/div[2]/div/div[2]") %>%
+    html_text() %>%
+    gsub("\n", "", .) %>%   #移除雜字
+    gsub("\t", "", .)       #移除雜字
+  
+  # 讀取文章連結，文章連結未包含"本文已被刪除"的連結
+  link <- html %>%
+    html_nodes(xpath = "/html/body/div[2]/div[2]/div/div[2]/a") %>%
+    html_attr("href") %>%
+    paste0("https://www.ptt.cc", .)
+  
+  # 讀取文章日期，包含"本文已被刪除"的日期
+  articledate <- html %>%
+    html_nodes(xpath = "/html/body/div[2]/div[2]/div/div[3]/div[3]") %>%
+    html_text()
+  
+  # 去除標題、日期"本文已被刪除"的row
+  removesite <- grep("刪除", title)
+  # grep：辨識哪一格有(轉成數字)，grepl：辨識每一格是否有(轉成布林值)
+  
+  if (length(removesite) > 0){
+    articledate <- articledate[-removesite]
+    title <- title[-removesite]
+  }
+  
+  # 儲存資料
+  articletable <- bind_rows(articletable, tibble(articledate, title, link))
+  
+  # 暫緩運行
+  Sys.sleep(0.1)
+}
+```

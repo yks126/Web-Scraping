@@ -1,0 +1,254 @@
+---
+title: "台北市住宅公設比"
+author: "俞凱翔"
+date: "2023-02-01"
+output:
+  html_document:
+    df_print: paged
+  word_document: default
+  pdf_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r, include=FALSE}
+rm(list = ls())
+```
+
+```{r message=FALSE, warning=FALSE, results='hide'}
+library(tidyverse)
+library(rvest)
+library(magrittr)
+library(RSelenium)
+library(data.table)
+```
+
+```{r}
+#抓取的資料欄位
+data_colnames <- c("trans_date", "location", "building_type", "total_price", "unit_price", "building_size", "land_size", "floor", "building_age", "private_space_check", "private_space", "public_space_check", "public_space", "land_usage", "trans_object", "notes")
+
+#建立時間表2010年1月-2023年2月
+year_monthly <- seq.Date(from = as.Date("2010/01/01"), to = as.Date("2023/02/01"), by = "month") %>% 
+  as.data.frame() %>%
+  separate(., col = ".", into = c("y", "m", "d"), sep = "-") %>%
+  .[, -3]
+```
+
+```{r}
+#常使用的函數
+
+#爬取資料
+scraping <- function(Xpath, html){
+   element <- html_nodes(html, xpath = Xpath) %>%
+    html_text()
+   
+   return(element)
+}
+```
+
+```{r}
+#資料來源：實價登錄比價王
+#地區：台北市全區
+#型態：住宅大樓/華夏、無電梯公寓、套房
+#時間：交易時間不限
+url_taipei <- "https://price.houseprice.tw/list/%E5%8F%B0%E5%8C%97%E5%B8%82_city/%E4%BD%8F%E5%AE%85%E5%A4%A7%E6%A8%93%5E%E8%8F%AF%E5%BB%88-%E7%84%A1%E9%9B%BB%E6%A2%AF%E5%85%AC%E5%AF%93-%E5%A5%97%E6%88%BF_use/area-desc_sort/"
+
+xpath_page <- "/html/body/div/section/div[2]/ul[2]/li/span[1]"
+xpath_total_number <- '//span[@class="txt_color"]'
+xpath_table <- '//table[@class="default_table realPrice_d_tb"]'
+xpath_tarns_record <- '//td[@class="cursor-pointer"]'
+xpath_trans_record_table <- '//div[@class="building"]'
+xpath_close_trans_record <- '//a[@class="cursor-pointer mt-1 mr-4 top-0 right-0 text-3xl modal-close absolute"]'
+xpath_next_page <- '//i[@class="sprite sprite-arrow_g r"]'
+
+xpath_table_content <- c(
+  "/html/body/div/section/div[3]/table/tbody/tr/td[1]",            #成交年月
+  "/html/body/div/section/div[3]/table/tbody/tr/td[2]/div/p",      #地址
+  "/html/body/div/section/div[3]/table/tbody/tr/td[3]",            #型態
+  "/html/body/div/section/div[3]/table/tbody/tr/td[4]/p/span",     #總價
+  "/html/body/div/section/div[3]/table/tbody/tr/td[5]/div/p/span", #單價
+  "/html/body/div/section/div[3]/table/tbody/tr/td[6]/p/span",     #建坪
+  "/html/body/div/section/div[3]/table/tbody/tr/td[7]",            #地坪
+  "/html/body/div/section/div[3]/table/tbody/tr/td[8]",            #樓別
+  "/html/body/div/section/div[3]/table/tbody/tr/td[9]",            #屋齡
+  "/html/body/div[2]/div/div/div/div/div[2]/div[1]/div/div[2]/div[1]/div[2]/ul/li[1]/div[1]",         #室內使用標題
+  "/html/body/div[2]/div/div/div/div/div[2]/div[1]/div/div[2]/div[1]/div[2]/ul/li[1]/div[2]/span[1]", #室內使用 
+  "/html/body/div[2]/div/div/div/div/div[2]/div[1]/div/div[2]/div[1]/div[2]/ul/li[2]/div[1]",         #共同使用標題
+  "/html/body/div[2]/div/div/div/div/div[2]/div[1]/div/div[2]/div[1]/div[2]/ul/li[2]/div[2]/span[1]", #共有部分
+  "/html/body/div[2]/div/div/div/div/div[2]/div[1]/div/div[2]/div[2]/div[2]/ul/li",                   #土地使用類別
+  "/html/body/div[2]/div/div/div/div/div[2]/div[2]/ul/li/div[1]/div[1]/div[2]/div[2]",                #交易品項
+  "/html/body/div[2]/div/div/div/div/div[2]/div[2]/ul/li/div[2]"                                      #備註
+)
+```
+
+```{r eval=FALSE, message=FALSE, results='hide'}
+#啟動瀏覽器
+remDr <- remoteDriver(browserName = "chrome")
+remDr$open()
+```
+
+```{r, eval=FALSE}
+#網路爬蟲
+all_data <- NULL
+
+for (ym in 1: nrow(year_monthly)) {
+  
+  monthly_data <- NULL
+  
+  #以月份為區隔，設定網址
+  year_month <- str_c(year_monthly[ym, 1], year_monthly[ym, 2])
+  url <- paste0(url_taipei, year_month, "_date/date-asc_sort/")
+  
+  remDr$navigate(url)
+  Sys.sleep(3)
+  
+  #確認交易筆數及頁數
+  total_number <- remDr$findElement(using = "xpath", xpath_total_number) $getPageSource() %>%
+    unlist() %>%
+    read_html() %>%
+    html_nodes(xpath = xpath_page) %>%
+    html_text() %>% 
+    str_remove_all(",") %>%
+    as.numeric()
+  total_page <- ceiling(total_number / 20)
+  
+  
+  #讀取每頁資料
+  for (page in 1: total_page) {
+    print(paste("第", page, "頁，共", total_page,"頁，年月：", year_month))
+    
+    #更新網頁
+    if (page %% 10 == 0){
+      reload_page <- paste0(url,"?p=", page)
+      
+      remDr$navigate(reload_page)
+      Sys.sleep(2)
+      }
+    
+    #讀取網頁檔
+    data_table_html <- remDr$findElement(using = "xpath", xpath_table)$getPageSource() %>%
+      unlist() %>%
+      read_html()
+    
+    #讀取該頁成交紀錄
+    trans_record <- remDr$findElements(using = "xpath", xpath_tarns_record)
+    
+    #若成交明細未完整顯示，重整網頁
+    if ((length(trans_record) != 20) & (page != total_page)){
+      remDr$refresh()
+      Sys.sleep(5)
+      
+      trans_record <- remDr$findElements(using = "xpath", xpath_tarns_record)
+    }
+  
+    #建立儲存檔
+    df <- matrix(ncol = 16, nrow = length(trans_record))
+    
+    #抓取網頁資料
+    #交易年月
+    df[, 1] <- scraping(xpath_table_content[1], data_table_html) %>%
+      .[-grep("交易", .)]
+    
+    #抓取其他的頁面資料
+    for (element in 2: 9) {
+      df[, element] <- scraping(xpath_table_content[element], data_table_html)
+    }
+    Sys.sleep(0.3)
+  
+    
+    #抓取在成交紀錄中的資料
+    for (i in 1: length(trans_record)) {
+      
+      #點開成交紀錄
+      trans_record[[i]]$clickElement()
+      Sys.sleep(0.1)
+      
+      #抓取每項成交紀錄的html
+      trans_detail <-  remDr$findElement(using = "xpath", xpath_trans_record_table)$getPageSource() %>%
+        unlist() %>%
+        read_html()
+      
+      #抓取資料
+      for (j in 10: 16) {
+        df[i, j] <- scraping(xpath_table_content[j], trans_detail) %>% .[1]
+      }
+      
+      #關閉成交紀錄
+      close_trans_record <- remDr$findElement(using = "xpath", xpath_close_trans_record)$clickElement()
+      Sys.sleep(0.1)
+    }
+    
+    #合併月份資料
+    monthly_data <- rbind(monthly_data, data.frame(df))
+    
+    #下一頁
+    next_page <- remDr$findElement(using = "xpath", xpath_next_page)$clickElement()
+    
+    #暫緩
+    Sys.sleep(3)
+  }
+  
+  #合併資料
+  all_data <- rbind(all_data, monthly_data)
+}
+```
+
+```{r eval=FALSE, warning=FALSE, results='hide'}
+write.csv(all_data, file = "taipei_buildings.csv")
+```
+
+```{r warning=FALSE, results='hide'}
+#資料整理
+all_data <- read.csv("taipei_buildings.csv") %>% .[, -1]
+
+#變更欄位名稱
+colnames(all_data) <- data_colnames
+
+#拆分資料
+taipei_building_trans <- all_data %>%
+  separate(., col = "trans_date", into = c("trans_year", "trans_month")) %>%
+  separate(., col = "floor", into = c("building_floor", "total_floor"), sep = " / ") %>%
+  separate(., col = "trans_object", into = c("building_amount", "land_amount", "parkinglot_amount"), sep = "/")
+  
+#整理地址欄位
+taipei_building_trans$location <- taipei_building_trans$location %>% 
+  str_remove_all("\\((.*)\\)") %>%
+  str_remove_all(" ")
+
+#整理屋齡欄位
+taipei_building_trans$building_age <- taipei_building_trans$building_age %>%
+  str_replace_all('["年預售 "]', "") %>%
+  str_replace_all("--", "-1") %>%            #未註記屋齡
+  as.numeric()
+taipei_building_trans$building_age[is.na(taipei_building_trans$building_age)] <- 0
+
+#移除非共有部分的資料
+taipei_building_trans[grep("[^共有部分]", taipei_building_trans$public_space_check), "public_space"] <- 0
+```
+
+```{r}
+usage_live <-  unique(grep("住", taipei_building_trans$land_usage, value = TRUE)) %>%
+  .[-grep("不得作住宅使用", .)]
+
+#計算公設比
+public_space_percentage <- taipei_building_trans %>%
+  .[-grep(TRUE, duplicated(taipei_building_trans$location)), ] %>%                           #去除相同的房地產，剩17萬筆
+  filter(building_age >= 0) %>%                                                              #去除無屋齡資料，剩15萬筆
+  filter(.$land_usage %in% usage_live) %>%                                                   #篩選住宅區，剩9.5萬筆
+  select(., c("trans_year", "trans_month", "building_age", "private_space", "public_space")) %>%
+  sapply(., as.numeric) %>%
+  as.data.frame() %>%
+  mutate(built_year = round(trans_year + (trans_month - 0.5) / 12 - building_age, 0),        #計算完工日期
+         public_percentage = round(public_space / (private_space + public_space), 2)) %>%    #計算公設比
+  filter(public_percentage > 0)                                                              #只取有公設比的資料，剩6萬筆
+
+#計算公設比中位數
+built_year_median <- aggregate(public_space_percentage$public_percentage, list(public_space_percentage$built_year), FUN = median)
+colnames(built_year_median) <- c("built_year", "public_percentage")
+
+#繪製公設比中位數圖
+ggplot(built_year_median, aes(x = built_year, y = public_percentage)) + 
+  geom_line(linewidth = 1, col = "blue")
+```

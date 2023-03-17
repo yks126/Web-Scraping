@@ -1,0 +1,68 @@
+---
+title: "網路爬蟲練習3-鉅亨新聞網"
+author: "Simon"
+date: "2023-01-31"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE)
+```
+
+```{r, include=FALSE}
+rm(list = ls())
+```
+
+```{r, include=FALSE}
+library(tidyverse)
+library(rvest)
+library(magrittr)
+library(ggplot2)
+```
+
+```{r}
+#網址
+url <- "https://news.cnyes.com/news/cat/tw_stock_news"
+
+#取得標題
+title <- read_html(url, encoding = "utf-8") %>%
+  html_nodes(css = "._1xc2") %>%       # css 路徑前面加 "."代表爬所有此類型的文字
+  html_text()
+
+#取得新聞連結
+newslink <- read_html(url, encoding = "utf-8") %>%
+  html_nodes(css = "._1Zdp") %>%
+  html_attr("href")
+
+#取得第一則新聞內容
+data <- read_html("https://news.cnyes.com/news/id/5072138?exp=a", encoding = "utf-8") %>%
+  html_nodes(xpath = "/html/body/div[1]/div/div/div[2]/main/div[3]/article/section[1]/div[2]/div[1]/p") %>%
+  html_text() %>%
+  paste0(., collapse = "")
+```
+
+```{r}
+#利用迴圈取出每則新聞內容
+newscontent <- NULL
+for (ix in 1: length(newslink)) {
+  #顯示目前進度
+  cat(paste0("目前進度：", ix, "/", length(newslink), "\n"))
+  
+  #網址
+  url_1 <- paste0("https://news.cnyes.com", newslink[ix])
+  
+  #取得內容
+  data_1 <- read_html(url_1, encoding = "utf-8") %>%
+    html_nodes(xpath = "/html/body/div[1]/div/div/div[2]/main/div[3]/article/section[1]/div[2]/div[1]/p") %>%
+    html_text() %>%
+    paste(., collapse = "")
+  
+  #儲存資料
+  newscontent <- c(newscontent, data_1)
+  
+  #暫緩程式碼
+  Sys.sleep(1)
+}
+
+output_1 <- tibble(title, newslink, newscontent)
+```
